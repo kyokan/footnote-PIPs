@@ -1,0 +1,71 @@
+PIP-7: Subdomain Blobs
+======================
+
+.. contents:: Table of Contents
+   :local:
+
+Overview
+########
+
+Since space on DDRP is a scarce resource, blob owners may wish to partition
+their blob space into segments and offer those segments to third parties. This
+PIP defines a standard format for partitioning blobs into named sub-segments
+called "subdomains." Note that these subdomains are distinct from any subdomains
+that may exist on the blob's Handshake name - the existence of a subdomain blob
+does not imply the existence of any additional DNS records defined on the TLD.
+
+Magic Value
+###########
+
+Blobs that contain subdomains MUST start with the magic value SUB
+(``0x535542``).
+
+Subdomain Records
+#################
+
+The first 32,768 bytes of the blob (inclusive of the Magic Value) MAY contain
+up to 255 Subdomain Records. Subdomain Records define the human-readable names
+used to address each blob partition, their index, and a public key for
+authenticating the messages contained within the partition.
+
+Subdomain Records are formatted as follows:
+
+#. ``version``: ``uint8``
+#. ``name``: ``[15]byte``
+#. ``index``: ``uint8``
+#. ``public_key``: ``[33]byte``
+
+The ``version`` field represents the version of the subdomain record. Currently,
+it MUST be set to ``0x01``.
+
+The ``name`` field represents the subdomain itself. Subdomains MUST have at
+least one character, and be encoded as valid UTF-8.
+
+The ``index`` field represents the index value that identifies this subdomain
+record. Index values are used to link messages (described in `PIP-8`_) with
+subdomain records. While not required, the ``index`` value SHOULD match the
+index at which the Subdomain Record appears in the blob.
+
+The ``public_key`` field contains a public key used to authenticate message
+associated with the Subdomain Record. It MUST be set to a valid ``secp256k1``
+compressed public key if authentication is requested or all zeroes.
+
+Zlib Compression Dictionary
+###########################
+
+The second 32,768 bytes of the blob is reserved for a zlib compression
+dictionary. It is currently unused, and MUST be filled with zeroes.
+
+Subdomain Data
+##############
+
+The remainder of the blob MAY contain one or more Social Messages. See `PIP-8`_
+for more details.
+
+Authors
+#######
+
+- `Matthew Slipper`_
+
+.. _PIP-8: ./pip-008.rst
+.. _Matthew Slipper: https://www.matthewslipper.com

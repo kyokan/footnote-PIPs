@@ -1,0 +1,32 @@
+PIP-6: Ban Lists
+================
+
+.. contents:: Table of Contents
+   :local:
+
+Overview
+########
+
+Although DDRP is a decentralized network, it is still made up of nodes owned and operated by individual people who are subject to both the jurisdiction of the place in which they live as well as their own desires regarding what content their node should or should not store. To give node operators the freedom to choose these things, DDRP supports blacklisting individual names at the protocol level.
+
+``ddrpd`` does not store the blob associated with a blacklisted name. Similarly, ``ddrpd`` will not gossip updates to that name. In effect, anything to do with a blacklisted name is ignored by the blacklisting ``ddrpd`` node. Note that this behavior is specific to ``ddrpd`` only - other clients MAY implement blacklisting semantics differently. As a result, this specification describes a common format for DDRP ban lists that clients MAY support.
+
+Syntax
+######
+
+DDRP ban lists are simple, newline-delimited text files. Ban lists MUST start with ``DDRPBAN:v1``, followed by a newline, followed by the list of names to ban. Each banned name MUST be on its own line. For example, the following is a valid ban list:
+
+.. code-block::
+
+  DDRPBAN:v1
+  bannedname1
+  anotherbadname
+
+Parsers SHOULD tolerate duplicate names as well as leading/trailing whitespace around each name.
+
+Authors
+#######
+
+- `Matthew Slipper`_
+
+.. _Matthew Slipper: https://www.matthewslipper.com

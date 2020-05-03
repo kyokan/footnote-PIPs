@@ -1,0 +1,191 @@
+PIP-8: Social Message Formats
+=============================
+
+.. contents:: Table of Contents
+   :local:
+
+Overview
+########
+
+DDRP's "global view" property allows applications to query and organize the data
+stored on the network however they see fit. One such application is
+decentralized social networking. Rather than posting content to a central
+server, users would instead write content to their DDRP blobs. In turn, client
+applications would read each blob and display the content contained therein
+according to the consumer's preferences.
+
+This PIP defines a set of standard "social message formats" in order to
+facilitate this use case.
+
+Envelopes
+#########
+
+All social messages are encased in an envelope structure that encodes common
+metadata about them. Envelopes are structured as follows:
+
+#. ``envelope_len``: ``Uvarint``
+#. ``message_type``: ``[8]byte``
+#. ``nameIndex``: ``uint8``
+#. ``timestamp``: ``time.Time``
+#. ``signature``: ``[]byte``
+#. ``message``: ``[N]byte``
+
+The ``envelope_len`` field represents the byte length of the envelope on the
+wire. This field MAY be longer than actual contents of the envelope - that is,
+clients MAY encode additional data at the end of the envelope that is not part
+of either the ``envelope`` structure or the ``message``. This allows all message
+types to be extended easily in the future.
+
+The ``message_type`` field represents the type of the message contained in the
+envelope. By convention, ``message_type`` is a compound fields consisting of
+the following components:
+
+#. ``message_type_id``: ``[3]byte``
+#. ``message_version``: ``uint8``
+#. ``message_subtype``: ``[4]byte``
+
+For example, a ``Post`` social message has a type of ``PST1\00\00\00\00`` by
+default. This is done to allow application developers to define their own
+messsage types and extend DDRP social functionality as they see fit. Client MUST
+support parsing messages that are well-formed but with unknown message types.
+
+The ``id`` field represents a unique identifier for the message. It is
+RECOMMENDED that applications generate the ``id`` from a secure random bytes
+generator. The ``id`` SHOULD be unique across current and historical messages
+contained within a blob. For example, let's say that a blob contained the ID
+``0x0000000000000000`` in the past, but the envelope was overwritten such that
+the envelope containing the ID no longer appears in the blob. Until the blob's
+ownership changes, this ID SHOULD NOT be used again.
+
+The ``nameIndex`` field represents the index of the subdomain that created this
+message. See `PIP-7`_ for more details.
+
+The ``timestamp`` field represents the creation time of this message.
+
+The ``signature`` field represents the signature of the envelope. It MUST be one
+of the following values:
+
+#. A zero-length byte array.
+#. A valid ``secp256k1`` signature of the envelope's reference hash. See the
+   "Reference Hashes" section for more details on generating an envelope's
+   reference hash.
+
+The ``message`` field represents the wire-encoded message itself.
+
+Messages
+########
+
+This PIP defines a few standard message types and payloads for use with social
+networking applications. However, developers are encouraged to define their own
+if the defaults are insufficient.
+
+Post
+****
+
+Defines a textual "post" message designed to contain a status update or blog
+post.
+
+Message Type:
+
+#. ``message_type_id``: ``PST``
+#. ``message_version``: ``1``
+#. ``message_subtype``: Default ``\x00\x00\x00\x00``
+
+Format:
+
+#. ``body``: ``string``
+#. ``title``: ``string``
+#. ``reference``: ``[32]byte``
+#. ``topic``: ``string``
+#. ``tags``: ``[]string``
+
+The ``body`` field contains the post's body. Posts MAY be formatted using HTML,
+Markdown, or any other text-based formatting language.
+
+The ``title`` field contains the post's title. MUST not exceed 255 characters in
+length.
+
+The ``reference`` field contains the reference hash of another post or social
+message. It is used to denote context-specific actions such as reblogs or
+replies.
+
+The ``topic`` field contains the post's topic.
+
+The ``tags`` field contains an array of tags for the post.
+
+Connection
+**********
+
+Defines a "connection" between two TLDs or subdomains.
+
+Message Type:
+
+#. ``message_type_id``: ``CNT``
+#. ``message_version``: ``1``
+#. ``message_subtype``: ``B\x00\x00\x00`` for blocks, ``F\x00\x00\x00`` for
+   follows
+
+Format:
+
+#. ```tld``: ``string``
+#. ``subdomain``: ``string``
+
+The ``tld`` field contains the TLD being followed. MUST be a valid Handshake
+TLD.
+
+The ``subdomain`` field contains the subdomain being followed. MUST be a valid
+`PIP-7`_ subdomain, or an empty string.
+
+Moderation
+**********
+
+Publicly broadcasts a moderation action on a specific message. "Moderation
+actions" in this context refer to things such as liking, pinning, or
+(potentially) voting on a message.
+
+Message Type:
+
+#. ``message_type_id``: ``MOD``
+#. ``message_version``: ``1``
+#. ``message_subtype``: ``L\x00\x00\x00`` for likes, ``P\x00\x00\x00`` for
+   pins
+
+Format:
+
+#. ``reference``: ``[32]byte``
+
+The ``reference`` field contains the refhash of the message being moderated.
+
+Media
+*****
+
+Defines a message that contains a file.
+
+Message Type:
+
+#. ``message_type_id``: ``MDA``
+#. ``message_version``: ``1``
+#. ``message_subtype``: Default ``\x00\x00\x00\x00``
+
+Format:
+
+#. ``filename``: ``string``
+#. ``mime_type``: ``string``
+#. ``content``: ``[]byte``
+
+The ``filename`` field is the file's name. MUST NOT exceed 255 characters in
+length.
+
+The ``mime_type`` field is the file's MIME type. MUST be a valid MIME type as
+per RFC-6838.
+
+The ``content`` field contains the file's contents as a byte array. Files MUST
+be included as their raw, binary contents without additional encoding.
+
+Authors
+#######
+
+- `Matthew Slipper`_
+
+.. _PIP-7: ./pip-007.rst
+.. _Matthew Slipper: https://www.matthewslipper.com

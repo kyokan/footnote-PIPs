@@ -1,0 +1,55 @@
+PIP-0: Meta
+===========
+
+.. contents:: Table of Contents
+   :local:
+
+Overview
+########
+
+DDRP is an experimental protocol for storing and synchronizing small amounts of
+data over a global, decentralized gossip network.
+
+Blobs
+*****
+
+DDRP stores data in fixed-length files called "blobs." Blobs are addressed by
+Handshake names in a 1:1 mapping. To assert ownership over a blob, Handshake
+nameholders generate a public/private key pair and insert the public key into
+their name's TXT records. They can then authenticate blob updates using their
+private key.
+
+In contrast to other decentralized storage protocols, DDRP nodes store all data
+on the network locally. This creates what these documents refer to as the
+"global view," and allows for rich applications to be built on top of DDRP that
+query local state rather than the network.
+
+See `PIP-3`_ for more information on blob structure and blob ownership.
+
+Network Topology
+****************
+
+DDRP nodes are arranged in a gossip network similar to Bitcoin. Nodes discover
+one another by querying their peers. Bootstrap peers can be read either from a
+configuration file or by querying a set of DNS seed domains.
+
+See `PIP-5`_ for more information on DDRP's peer protocol, and `PIP-2`_ for
+more information on how nodes connect to each other.
+
+About the PIPs
+##############
+
+PIP stands for Protocol Improvement Proposal. Over time, they will form the
+canonical DDRP specification. They are currently being extracted from the
+`reference implementation`_, and should be considered a work in progress that is
+subject to change at any time.
+
+Acknowledgements
+################
+
+DDRP was inspired by a protocol originally designed by Joseph Poon.
+
+.. _PIP-2: ./pip-002.rst
+.. _PIP-3: ./pip-003.rst
+.. _PIP-5: ./pip-005.rst
+.. _reference implementation: https://github.com/ddrp-org/ddrp

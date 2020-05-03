@@ -1,0 +1,120 @@
+PIP-3: Blobs
+============
+
+.. contents:: Table of Contents
+   :local:
+
+Overview
+########
+
+A blob is a fixed-size file that contains the data associated with a single Handshake name. They are conceptually similar to storage volumes in that they support random-access reads and writes within a size bound.
+
+Nomenclature
+############
+
+blob size
+  The maximum size of a blob. Currently, this is set to 16 mebibytes (16,777,216 bytes).
+
+sector size
+  The maximum size of a sector. Currently, this is set to 65,536 bytes.
+
+sector ID
+  The index of a sector within a blob. For example, given the blob and sector sizes above, the sector ID representing offsets 65,536-131,072 would be ``1``.
+
+
+Blob Layout
+###########
+
+A blob is a file that is exactly ``blob size`` in length. Data may be written to or read from any offset within the blob. Offsets that have not been explicitly written to are assumed to contain null bytes. Implementations MAY store blobs however they see fit as long as these constraints are respected.
+
+Blobs are further partitioned into ``blob size/sector size`` sectors. Sectors are used by the synchronization protocol described by `PIP-4`_ to determine which pieces of the blob have changed, and authenticate those changes. Sectors have IDs, which correspond to their indices within each blob.
+
+Diagrammatically, blobs look like this:
+
+.. code-block::
+
+  +-----------------------------------+
+  |             Sector 0              |
+  |         (Offsets 0-65535)         |
+  +-----------------------------------+
+  |             Sector 1              |
+  |      (Offsets 65536-131072)       |
+  +-----------------------------------+
+  |                                   |
+  |                                   |
+  |                ...                |
+  |                                   |
+  |                                   |
+  |                                   |
+  +-----------------------------------+
+  |            Sector 255             |
+  |    (Offsets 16711680-16777216)    |
+  +-----------------------------------+
+
+Note that the contents of the blob itself are opaque to the protocol. Applications can treat the blob as a continuous, random-access sequence of ``blob size`` bytes and ignore the implementation details of how DDRP will partition and synchronize the blob.
+
+Blob Merkleization
+##################
+
+Blob owners sign over the blob's Merkle root to authenticate the data contained therein. DDRP uses a binary Merkle tree to generate the Merkle root. 4096-byte chunks of blob data are used as input to the tree's leaves. This allows the ``sector size`` to be changed to any power of two larger than 4096 in the future without invalidation historical signatures.
+
+To determine which sectors have changed, the synchronization process described in `PIP-4`_ uses something called a "Merkle base" to compare the contents of two blobs. Consider the following Merkle small Merkle tree:
+
+.. code-block::
+
+                   +-----------------------------+
+                   |                             |
+                   |                             |                  (Level 0:) The root hashes 16384b of data
+                   +-----------------------------+
+                                  |
+                 +----------------+----------------+
+                 |                                 |
+         +-------v------+                  +-------v------+
+         |              |                  |              |
+         |              |                  |              |         (Level 1:) Each node hashes 8192b of data
+         +--------------+                  +--------------+
+                 |                                 |
+        +--------+-------+                +--------+-------+
+        |                |                |                |
+  +-----v----+     +-----v----+     +-----v----+     +-----v----+
+  |   H(A)   |     |   H(B)   |     |   H(C)   |     |   H(D)   |
+  |          |     |          |     |          |     |          |   (Level 2:) Each node hashes 4096b of data
+  +-----^----+     +-----^----+     +-----^----+     +-----^----+
+        |                |                |                |
+  +-----+----+     +-----+----+     +-----+----+     +-----+----+
+  |  Data A  |     |  Data B  |     |  Data C  |     |  Data D  |
+  | (4096b)  |     | (4096b)  |     | (4096b)  |     | (4096b)  |
+  +----------+     +----------+     +----------+     +----------+
+
+As shown above, each node hashes a power of two more data as one moves up the tree. The Merkle base refers to the list of internal tree nodes at the level that encompasses ``sector size`` bytes of data. DDRP's Merkle tree has ``blob size/4096=4096`` leaves, so nodes at the eigth level of the tree will contain the hashes that hash over ``sector size`` bytes of data.
+
+
+Blob Ownership
+##############
+
+"Ownership" of a blob is determined by a ``TXT`` record on the Handshake blockchain. The ``TXT`` record is structured as ``DDRPKEY:<pub>``, where ``<pub>`` is a compressed ``secp256k1`` encoded as hexadecimal. The individual who possesses the private key is considered the blob's "owner," and is able to authorize changes to the blob by signing over its name, Merkle root, timestamp.
+
+When parsing the ``TXT`` record:
+
+1. Nodes MUST tolerate mal-formed ``DDRPKEY`` ``TXT`` records by ignoring them.
+2. If multiple ``DDRPKEY`` ``TXT`` records are present for a given TLD, nodes MUST ignore all other records except the first.
+
+Blob Signatures
+###############
+
+The owner of a blob signs over its contents by generating the ``secp256k1`` signature of the hash ``BLAKE2B-256("DDRPBLOB", name, update timestamp, merkle root, reserved)``, encoded as follows:
+
+#. ``DDRPBLOB``: Encoded as an ASCII ``[8]byte``.
+#. ``name``: A ``string``.
+#. ``update timestamp``: A ``uint64`` of the timestamp, encoded as per `PIP-1`_.
+#. ``merkle root``: A ``[32]byte``, encoded as per `PIP-1`_.
+#. ``reserved``: A ``[32]byte`` buffer from the ``reserved`` field in `PIP-4`_, encoded as per `PIP-1`_. These bytes may be used as part of future protocol upgrades.
+
+Authors
+#######
+
+- `Matthew Slipper`_
+
+.. _PIP-4: ./pip-4.html
+.. _PIP-1: ./pip-1.html
+.. _Matthew Slipper: https://www.matthewslipper.com

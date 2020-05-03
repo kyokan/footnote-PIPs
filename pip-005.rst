@@ -1,0 +1,86 @@
+PIP-5: Peer Protocol
+====================
+
+.. contents:: Table of Contents
+   :local:
+
+Overview
+########
+
+Once connected to each other, DDRP nodes exchange exchange ``Ping`` messages with one another to prove liveness. To discover other nodes on the network, nodes request new peers from their currently-connected peers.
+
+Peer Pings
+##########
+
+In order to verify their liveness, DDRP nodes periodically send each other ``Ping`` messages. ``Ping`` messages are structured as follows:
+
+#. ``type``: ``0x03``
+#. Data:
+
+	 #. None.
+
+Nodes SHOULD disconnect from any peers that fail to send a message within 30 seconds of the last-received ``Ping``.
+
+While there is no explicit ping interval requirement, it is RECOMMENDED that implementations use 5 seconds.
+
+Peer Discovery
+##############
+
+DDRP nodes periodically exchange peers through a request/response protocol. The protocol works as follows:
+
+#. The node in need of additional peers sends a ``PeerReq`` message to a random subset of its peers.
+#. The nodes that receive the ``PeerReq`` message send the requestor their respective peer books via ``PeerRes`` messages.
+#. The requestor connects to the peers specified in the received ``PeerRes`` messages via the handshake described in `PIP-2`_.
+#. The process is repeated until the target number of peers (8 in the reference implementation) is reached.
+
+The ``PeerReq`` Message
+***********************
+
+#. ``type``: ``0x09``
+#. Data:
+
+	 #. None.
+
+The ``PeerRes`` Message
+***********************
+
+#. ``type``: ``0x0a``
+#. Data:
+
+	 #. ``peer_count``: ``uint8``
+	 #. ``peers``: ``[]Peer``
+
+``Peer`` objects are structured as follows:
+
+1. ``ip``: ``IP``
+2. ``port``: ``uint16``
+3. ``peer_id``: ``[32]byte``
+
+The ``peer_count`` field references the number of peers in the following array. It MUST equal the number of peers in the ``peers`` field.
+
+The ``peers`` array contains the list of peers the current node wishes to send the requestor.
+
+The ``Peer``'s ``ip`` field references the public IP of the returned peer.
+
+The ``Peer``'s ``port`` field reference the port that the returned peer is listening on for new peer-to-peer connections.
+
+The ``Peer``'s ``peer_id`` field is the ``BLAKE2B-256`` hash of the returned peer's public key. See `PIP-2`_ for more information on how peer IDs are calculated.
+
+All fields in ``PeerRes`` MUST be set.
+
+Nodes SHOULD NOT send ``PeerRes`` messages for peers that are listening on a non-standard port.
+
+Nodes SHOULD NOT dial peers in ``PeerRes`` message that are listening on a non-standard port.
+
+Bootstrap Peers
+###############
+
+To provide an initial set of peers to connect to, the DDRP team maintains a list of bootstrap peers. Using these bootstrap peers is OPTIONAL. Any DDRP node can function as a bootstrap peer.
+
+Authors
+#######
+
+- `Matthew Slipper`_
+
+.. _PIP-2: ./pip-2.html
+.. _Matthew Slipper: https://www.matthewslipper.com

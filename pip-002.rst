@@ -1,0 +1,279 @@
+PIP-2: Authenticated Transport
+==============================
+
+.. contents:: Table of Contents
+   :local:
+
+Overview
+########
+
+All DDRP nodes identify themselves on the network using a ``secp256k1`` public
+key. These identity keys are used to establish authenticated communication
+channels between pairs of nodes. These channels are currently unencrypted,
+though an encrypted transport (e.g., `Noise`_) could be added at a later date.
+Once a channel is established, the same identity keys are then used to
+authenticate individual DDRP messages as they cross the wire.
+
+Concept and Rationale
+#####################
+
+DDRP is a decentralized network with no global consensus mechanism. As such, the
+duty of enforcing compliance with the protocol's rules fall to each node
+individually. "Enforcement" in this case usually means disconnecting from
+faulty or deliberately misbehaving peers and blocking connections with them in
+the future. To enable this type of enforcement, peers need to identify both
+themselves and any messages they send. DDRP's authenticated transport mechanism
+is designed to solve this problem.
+
+
+DDRP's authenticated transport is defined for pairs of nodes only. It operates
+in two phases:
+
+#. A handshake phase, in which both nodes prove ownership over their respective
+   identity key.
+#. A messaging phase, in which nodes exchange DDRP messages after signing them
+   with their identity key.
+
+A node's "identity key" refers to a ``secp256k1`` key pair that identifies the
+node to the rest of the network. It is distinct from the ``secp256k1`` key pair
+used by blob owners to authenticate data.
+
+Handshake Phase Overview
+************************
+
+The handshake works as follows. We will use the standard "Alice and Bob"
+notation to denote each participant:
+
+#. Alice knows Bob's identity key ``Bob_ik`` beforehand. Alice signs a ``Hello``
+   message using her identity key ``Alice_ik`` containing her random nonce
+  ``Alice_nonce``.
+#. Bob receives the ``Hello`` message from Alice, and verifies that its
+   signature is valid. If it is, Bob responds with a ``Hello`` message of his
+   own that includes both ``Alice_nonce`` and his random nonce ``Bob_nonce``.
+#. Alice receives the ``Hello`` message from Bob, and verifies that its
+   signature is correct. She also verifies that the ``Alice_nonce`` value inside
+   the message equals the one that she generated earlier. If both the signature
+   and the nonce are valid, she responds with a signed ``HelloAck`` message
+   containing ``Bob_nonce``.
+#. Bob receives the ``HelloAck`` message, and verifies that its signature is
+   correct. He also verifies that the ``Bob_nonce`` value inside the message
+   equals the one that he generated earlier. No further messages are exchanged.
+
+To reiterate, the primary goal of the handshake phase is for both Alice and Bob
+to prove that they own their respective identity keys. In this case, the nonce
+values are used for this purpose: Both Alice and Bob must generate a
+never-before-seen signature that signs over nonce data chosen by their
+counterparty.
+
+Note that DDRP's threat model excludes certain common attack scenarios. See the
+[Security Considerations](#security-considerations) for more detail both on the
+threat model as well as known vulnerabilities.
+
+Messaging Phase Overview
+************************
+
+Once the handshake is complete, nodes begin exchanging messages with one
+another. All messages are placed in an envelope prior to being sent over the
+wire. Envelopes are signed with the sending node's identity key prior to being
+sent.
+
+Message Envelope
+################
+
+DDRP messages MUST be sent inside an envelope with the following schema:
+
+#. ``magic``: A ``uint32`` field that contains a magic number representing the
+   current DDRP network.
+#. ``type``: A ``uint8`` field that represents the type of the message.
+#. ``timestamp``: A ``time.Time`` field that represents the message's time of
+   creation.
+#. ``message``: A ``[]byte`` field containing the message itself.
+#. ``signature:`` A ``Signature`` field over the ``type``, ``timestamp``, and
+   ``message`` fields.
+
+The ``magic`` field MUSt be set to ``0xcafecafe``.
+
+The ``type`` field is used to determine the schema of the ``message`` field. The
+value of the ``type`` field MUST correspond to a message type defined as part of
+a DDRP sub-protocol.
+
+The ``timestamp`` field is used to prevent replay attacks. It MUST be set.
+
+The ``message`` field MUST be a PIP-1 encoded message whose type matches the
+type described by the ``type`` field.
+
+The ``signature`` field is generated according to the following procedure:
+
+#. The ``type`` and ``message`` fields are PIP-1 encoded into a structure with
+   the schema ``[type, timestamp, message]``.
+#. The ``BLAKE2B-256`` hash of the above structure is calculated.
+#. The sender's key identity signs the resulting hash.
+
+Nodes MUST ignore messages with an invalid ``type`` or ``signature`` field.
+Nodes SHOULD disconnect if mal-formed messages are received.
+
+The ``Hello`` Message
+#####################
+
+``Hello`` messages are used by DDRP nodes during the handshake phase. They have
+the following schema:
+
+#. ``type``: ``0x00``
+#. Data:
+
+   #. ``protocol_version``: ``uint32``
+   #. ``local_nonce``: ``[32]byte``
+   #. ``remote_nonce``: ``[32]byte``
+   #. ``public_key``: ``PublicKey``
+   #. ``external_ip``: ``IP``
+   #. ``external_port``: ``uint16``
+   #. ``user_agent``: ``string``
+
+The ``protocol_version`` field MUST be set to ``0x01``. This value will be
+incremented if changes are made to the protocol. Node implementations SHOULD try
+to remain backwards-compatible unless incompatible protocol changes are made.
+
+The ``local_nonce`` field represents the nonce value expected by the local
+(i.e., sending) node. It MUST be set to a 32-byte random value.
+
+The ``remote_nonce`` field represents the nonce value expected by the remote
+(i.e., receiving) node. It MUST be set to either a the value provided by the
+counterparty node, or all zeroes.
+
+The ``public_key`` field represents the sending node's identity key. It MUST be
+set to a valid ``secp256k1`` public key.
+
+The ``external_ip`` field represents the sending node's externally-visible IP.
+
+The ``external_port`` field represents the sending node's listen port. If the
+sending node is not Internet-accessible, this SHOULD be set to zero.
+
+The ``user_agent`` field is a user-defined field that allows nodes to identify
+the software they are running.
+
+The ``HelloAck`` Message
+########################
+
+``HelloAck`` messages are used by DDRP nodes during the handshake phase. They
+have the following schema:
+
+#. ``type``: ``0x01``
+#. Data:
+
+	 #. ``nonce``: ``[32]byte``
+
+The ``nonce`` field MUST be set to the counterparty node's nonce as defined by
+their ``Hello`` message.
+
+Handshake Phase Specification
+#############################
+
+For the handshake phase, we will assume two nodes named Alice and Bob,
+respectively. Both nodes start with the following state:
+
+- ``Alice_ik``: Alice's identity key pair.
+- ``Alice_nonce``: Alice's nonce. Set to zero initially.
+- ``Bob_ik``: Bob's identity key pair.
+- ``Bob_nonce``: Bob's nonce. Set to zero initially.
+
+We will assume that Alice is initiating the handshake with Bob. The initiating
+node MUST know the counterparty node's ``ik`` prior to initiating the handshake.
+While all messages in the below description are enveloped using the procedure
+described above, we will reiterate the process for clarity.
+
+Upon initiation, Alice:
+
+#. Generates a random 32-byte nonce ``Alice_nonce``.
+#. Constructs a ``Hello`` message as per the specification above. Since Alice is
+   sending the ``Hello`` message, she will set the ``local_nonce`` field to
+   ``Alice_nonce``.
+#. Generates a message envelope for the ``Hello`` message, and signs it with
+   ``Alice_ik``.
+#. Sends the envelope to Bob.
+
+Upon receipt of Alice's ``Hello`` envelope, Bob:
+
+#. Verifies Alice's signature of the received envelope by comparing the
+   ``secp256k1`` public key recovered from the envelope's signature against the
+   ``public_key`` field.
+
+	 #. Bob MUST disconnect from Alice and abort the handshake process if the
+       signature fails verification.
+	 #. Bob MUST disconnect from Alice if the provided ``protocol_version`` field
+       does not equal ``0x02``.
+
+#. Constructs a ``Hello`` message as per the specification above. Since Bob is
+   sending the ``Hello`` message, he will set the ``local_nonce`` field to
+   ``Bob_nonce`` and the ``remote_nonce`` field to ``Alice_nonce`` as provided
+   by the ``local_nonce`` field in Alice's ``Hello`` message.
+#. Generates a message envelope for the ``Hello`` message, and signs it with
+   ``Bob_ik``.
+#. Sends the envelope to Alice.
+
+Upon receipt of Bob's ``Hello`` envelope, Alice:
+
+#. Verifies Bob's signature of the received envelope by comparing the
+   ``secp256k1`` public key recovered fron the envelope's signature against the
+   ``public_key`` field.
+
+	 #. Alice MUST disconnect from Bob and abort the handshake process if the
+       signature fails verification.
+	 #. Alice MUST disconnect from Bob if the provided ``protocol_version`` field
+       does not equal ``0x02``.
+	 #. Alice MUST disconnect from Bob if the provided ``remote_nonce`` value
+       does not match ``Alice_nonce``.
+
+#. Sets the value of ``Bob_nonce`` to the value of the ``local_nonce`` field.
+#. Constructs a ``HelloAck`` message as per the specification above. Since Alice
+   is sending the ``HelloAck`` message, she will set the ``nonce`` field to
+   ``Bob_nonce``.
+
+Upon receipt of Alice's ``HelloAck`` envelope, Bob:
+
+#. Verifies Alice's signature of the received envelope by comparing the
+   ``secp256k1`` public key recovered from the envelope's signature against
+   ``Alice_ik``.
+
+ 	 #. Bob MUST disconnect from Alice and abort the handshake process if the
+       signature fails verification.
+	 #. Bob MUST disconnect from Alice if the provided ``nonce`` value does not
+       match ``Bob_nonce``.
+
+The handshake phase is complete at this point, and the protocol can enter the
+messaging phase.
+
+Messaging Phase Specification
+#############################
+
+Once two DDRP nodes have finished handshaking, all following messages MUST be
+included in a message envelope. The schema for the message envelope is described
+in the Message Envelope section above.
+
+Nodes:
+
+- MUST disconnect from any node that sends an envelope with a mal-formed
+  signature.
+- MUST disconnect from any node that sends an envelope whose ``timestamp`` field
+  is more than thirty seconds in the past or future.
+
+Security Considerations
+#######################
+
+This protocol is designed for the following threat model:
+
+1. Malicious actors may not impersonate an honest node.
+2. Malicious nodes are to be blacklisted on a per-node basis.
+
+As such, it is explicitly not designed to be resistant against man-in-the-middle
+attacks, since such an attack would imply that nodes would be communicating with
+the "man in the middle" rather than each other. Furthermore, it is not designed
+to provide resistance against deep packet inspection or other traffic analysis
+techniques.
+
+Authors
+#######
+
+- `Matthew Slipper`_
+
+.. _Noise: https://noiseprotocol.org/noise.html
+.. _Matthew Slipper: https://www.matthewslipper.com

@@ -1,0 +1,173 @@
+PIP-4: Synchronization Protocol
+===============================
+
+.. contents:: Table of Contents
+   :local:
+
+Overview
+########
+
+Once two DDRP nodes are connected, they can begin synchronizing blob updates with one another. Since DDRP has no global consensus mechanism, a node is considered "in-sync" when a majority of its peers have no more updates to share.
+
+Concept
+#######
+
+At a high level, DDRP's synchronization protocol operates as follows:
+
+1. A node receives an update notification from one or more of its peers.
+2. The node requests the base of the blob's Merkle tree from one or more of its peers.
+3. The node requests the sectors whose hashes in the tree base differ from those stored by the requesting peer.
+4. The node gossips the update notification to its peers.
+
+Note that the process involves an additional step when nodes connect to the network for the first time. This process is covered in a dedicated section.
+
+To keep track of changes to blobs, DDRP uses a timestamp-based versioning system. When a user updates their blob, they sign both the current timestamp as well as the updated blob's Merkle root. This allows nodes to reject stale updates or updates that happen too often.
+
+Update Notifications
+####################
+
+Nodes receive notification of a blob update in one of two ways: from its peers via an ``Update`` message, or locally following a CLI-initiated update.
+
+The ``Update`` Message
+**********************
+
+``Update`` messages have the following schema. All fields MUST be set:
+
+#. ``type``: ``0x04``
+#. Data:
+
+    #. ``name``: ``string``
+    #. ``timestamp``: ``Time``
+    #. ``merkle_root``: ``[32]byte``
+    #. ``reserved``: ``[32]byte``
+    #. ``signature``: ``Signature``
+
+The ``name`` field represents the Handshake TLD whose blob is being updated. It MUST be set.
+
+The ``timestamp`` field represents the timestamp of the blob's update.
+
+The ``merkle_root`` field represents the blob's Merkle root post-update.
+
+The ``reserved`` field is reserved for future use. It SHOULD be set to all zeroes. The ``reserved`` field is used as part of the blob signature generation process.
+
+The ``signature`` field represents the signature of the blob's owner over the blob's timestamp and Merkle root.
+
+Nodes receiving an ``Update`` message:
+
+- MUST disconnect from nodes that send an invalid signature.
+- MUST ignore ``Update`` messages with a ``timestamp`` value that precedes the referenced blob's ``timestamp``.
+- MUST begin the sector synchronization process if the ``timestamp`` value proceeds the referenced blob's ``timestamp``.
+- SHOULD ignore the ``Update`` message if the ``timestamp`` value is within the one hour window following the referenced blob's ``timestamp``.
+- MUST resolve the provided name to a DDRP key on the Handshake blockchain in order to verify the provided ``signature``.
+
+Sector Synchronization Process
+******************************
+
+We will describe this process from the perspective of two nodes, Alice and Bob, however in practice sector synchronization SHOULD be carried out among a group of peers. We will describe multiple-peer strategies after describing the protocol itself. The protocol works as follows, assuming that Bob sent Alice the ``Update`` message:
+
+The ``TreeBaseReq`` Message
+###########################
+
+The first step in the synchronization process is for Alice to request a tree base from Bob by sending a ``TreeBaseReq`` message. It is structured as follows. All fields MUST be set:
+
+#. ``type``: ``0x05``
+#. Data:
+
+	 #. ``name``: ``string``
+
+The ``name`` field represents the Handshake TLD being synchronized.
+
+The ``TreeBaseRes`` Message
+###########################
+
+Once Bob receives the ``DiffReq`` message, he responds with a ``DiffRes`` message. The ``DiffRes`` message is structured as follows, and all fields MUST be set:
+
+#. ``type``: ``0x06``
+#. Data:
+
+	#. ``name``: ``string``
+	#. ``tree_base``: ``[256][32]byte``
+
+The ``name`` field represents the Handshake TLD being synchronized.
+
+The ``tree_base`` field represents the base of the Merkle tree as described in `PIP-3`_.
+
+Nodes receiving the ``TreeBaseRes`` message:
+
+- MUST verify the ``tree_base`` against the ``merkle_root`` received in the ``Update`` message.
+
+The ``SectorReq`` and ``SectorRes`` Messages
+############################################
+
+With the tree base in hand, Alice begins requesting sector data from Bob for each sector whose hash differs from the ones described in the tree base. She does this by sending ``SectorReq`` messages with the following structure:
+
+#. ``type``: ``0x07``
+#. Data:
+
+	 #. ``name``: ``string``
+	 #. ``sector_id``: ``uint16``
+
+The ``name`` field represents the Handshake TLD for whom sectors are being requested.
+
+The ``sector_id`` represents the ID of the sector whose data is being requested.
+
+All fields MUST be set.
+
+Upon receipt of Alice's ``SectorReq``, Bob responds with a ``SectorRes`` message with the following structure:
+
+#. ``type``: ``0x08``
+#. Data:
+
+	 #. ``name``: ``string``
+	 #. ``sector_id``: ``uint16``
+	 #. ``sector``: ``[256]byte``
+
+The ``name`` field represents the Handshake TLD for whom sectors are being requested.
+
+The ``sector_id`` field represents the ID of the sector whose data is being returned.
+
+The ``sector`` field represents the returned sector's data.
+
+Nodes receiving ``SectorRes`` messages:
+
+- MUST verify the ``sector`` field against the validated ``tree_base`` received in the ``TreeBaseRes`` message.
+
+Nodes in general:
+
+- MUST NOT send ``SectorRes`` messages for names for which they have no data.
+
+Update Gossip
+#############
+
+Nodes MUST send ``Update`` messages to their peers once they complete the sector synchronization process. Nodes SHOULD filter out peers that don't need the ``Update`` message, such as those that started the sending node's synchronization process.
+
+Initial Synchronization Protocol
+################################
+
+When a DDRP node joins the network for the first time, it executes the following protocol to bootstrap blob data:
+
+1. The node traverses the Handshake blockchain from genesis to head, and aggregates all TLDs that contain ``DDRPKEY`` ``TXT`` records.
+2. For each TLD with a ``DDRPKEY`` record, the node sends an ``UpdateReq`` message to its peers.
+3. The node's peers respond with an ``Update`` message that contains the information the sending node needs to begin the sector synchronization protocol.
+4. The node begins sector synchronization as described above.
+
+See below for how the ``UpdateReq`` message is structured.
+
+The ``UpdateReq`` Message
+*************************
+
+#. ``type``: ``0x0b``
+#. Data:
+
+	 #. ``name``: ``string``
+
+The ``name`` field represents the name for which data is being requested.
+
+
+Authors
+#######
+
+- `Matthew Slipper`_
+
+.. _PIP-3: /spec/pip-3.html
+.. _Matthew Slipper: https://www.matthewslipper.com
